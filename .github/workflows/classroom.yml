@@ -15,6 +15,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
     - name: Pre-compilar Release
       run: dotnet build -c Release
 
@@ -22,6 +27,7 @@ jobs:
     - name: Expresion Balanceada Simple
       id: expresion-simple
       uses: classroom-resources/autograding-io-grader@v1
+      continue-on-error: true
       with:
         test-name: "Expresion Balanceada Simple"
         command: "/usr/bin/time -v ./bin/Release/net10.0/PilaApp > out1.txt 2> met1.txt && cat out1.txt"
@@ -34,6 +40,7 @@ jobs:
     - name: Expresion Compleja Mixta
       id: expresion-compleja
       uses: classroom-resources/autograding-io-grader@v1
+      continue-on-error: true
       with:
         test-name: "Expresion Compleja Mixta"
         command: "/usr/bin/time -v ./bin/Release/net10.0/PilaApp > out2.txt 2> met2.txt && cat out2.txt"
@@ -46,6 +53,7 @@ jobs:
     - name: Validacion de Error de Cierre
       id: validacion-error
       uses: classroom-resources/autograding-io-grader@v1
+      continue-on-error: true
       with:
         test-name: "Validacion de Error de Cierre"
         command: "/usr/bin/time -v ./bin/Release/net10.0/PilaApp > out3.txt 2> met3.txt && cat out3.txt"
@@ -58,47 +66,61 @@ jobs:
     # --- REPORTE Y ENVÍO UNIFICADO ---
     - name: 📊 REPORTE DE EFICIENCIA Y ENVÍO A TABLERO
       if: always()
+      shell: bash
       run: |
         echo "==============================================================="
         echo "   AUDITORÍA TÉCNICA DE ALGORITMOS - PILAS UMG"
         echo "==============================================================="
         
-        # 1. Calcular Punteo Académico
+        # Asegurar que los archivos existan para evitar errores de grep
+        touch met1.txt met2.txt met3.txt out1.txt out2.txt out3.txt
+
+        # 1. Calcular Punteo Académico basado en el resultado del paso
         P1=0; P2=0; P3=0
         if [[ "${{ steps.expresion-simple.outcome }}" == "success" ]]; then P1=30; fi
         if [[ "${{ steps.expresion-compleja.outcome }}" == "success" ]]; then P2=40; fi
         if [[ "${{ steps.validacion-error.outcome }}" == "success" ]]; then P3=30; fi
         TOTAL_PUNTEO=$((P1 + P2 + P3))
 
-        # 2. Extraer métricas de tiempo, RAM y CPU
-        T1=$(grep "User time" met1.txt | cut -d: -f2 | xargs || echo "0")
-        T2=$(grep "User time" met2.txt | cut -d: -f2 | xargs || echo "0")
-        T3=$(grep "User time" met3.txt | cut -d: -f2 | xargs || echo "0")
+        # Función para extraer métricas de forma segura
+        extract_metric() {
+          local pattern="$1"
+          local file="$2"
+          local result=$(grep "$pattern" "$file" | cut -d: -f2 | xargs || echo "0")
+          echo "${result:-0}"
+        }
+
+        # 2. Extraer métricas
+        T1=$(extract_metric "User time" met1.txt)
+        T2=$(extract_metric "User time" met2.txt)
+        T3=$(extract_metric "User time" met3.txt)
         
-        R1=$(grep "Maximum resident set size" met1.txt | cut -d: -f2 | xargs || echo "0")
-        R2=$(grep "Maximum resident set size" met2.txt | cut -d: -f2 | xargs || echo "0")
-        R3=$(grep "Maximum resident set size" met3.txt | cut -d: -f2 | xargs || echo "0")
+        R1=$(extract_metric "Maximum resident set size" met1.txt)
+        R2=$(extract_metric "Maximum resident set size" met2.txt)
+        R3=$(extract_metric "Maximum resident set size" met3.txt)
         
         C1=$(grep "Percent of CPU" met1.txt | cut -d: -f2 | tr -d '%' | xargs || echo "0")
         C2=$(grep "Percent of CPU" met2.txt | cut -d: -f2 | tr -d '%' | xargs || echo "0")
         C3=$(grep "Percent of CPU" met3.txt | cut -d: -f2 | tr -d '%' | xargs || echo "0")
         
-        # 3. Calcular Promedios y Score
+        # 3. Calcular Promedios y Score mediante awk (maneja decimales)
         AVG_TIME=$(awk -v a="$T1" -v b="$T2" -v c="$T3" 'BEGIN { printf "%.3f", (a+b+c)/3 }')
         AVG_RAM=$(awk -v a="$R1" -v b="$R2" -v c="$R3" 'BEGIN { printf "%.2f", (a+b+c)/3 }')
-        AVG_CPU=$(awk -v a="$C1" -v b="$C2" -v c="$C3" 'BEGIN { printf "%.2f", (a+b+c)/3 }')
+        AVG_CPU=$(awk -v a="${C1:-0}" -v b="${C2:-0}" -v c="${C3:-0}" 'BEGIN { printf "%.2f", (a+b+c)/3 }')
         
+        # Fórmula de Score: Tiempo (ms) + RAM (MB) + CPU (%)
         SCORE=$(awk -v t="$AVG_TIME" -v r="$AVG_RAM" -v c="$AVG_CPU" \
           'BEGIN { printf "%.2f", (t * 1000 * 1.0) + ((r / 1024) * 0.5) + (c * 0.2) }')
 
         echo "🏆 PUNTEO ACADÉMICO: $TOTAL_PUNTEO / 100"
         echo "🏆 SCORE DE EFICIENCIA: $SCORE"
 
-        # 4. ENVÍO A GOOGLE SHEETS (Incluyendo el punteo)
+        # 4. ENVÍO A GOOGLE SHEETS
+        # Reemplaza la URL con tu URL de implementación actual si la cambiaste
         curl -L -X POST "https://script.google.com/macros/s/AKfycbwgKABgEL8GnF8fUkccLz8e34anoIUE9uzonIM75Rk01fcbvrJdlo7JsSemRUNYBkVN/exec" \
              -H "Content-Type: application/json" \
              -d "{
-                  \"fecha\": \"$(date -u +'%d/%m/%Y %H:%M')\",
+                  \"fecha\": \"$(date -u -d '-6 hours' +'%d/%m/%Y %H:%M')\",
                   \"usuario\": \"${{ github.actor }}\",
                   \"intento\": ${{ github.run_number }},
                   \"score\": \"$SCORE\",
