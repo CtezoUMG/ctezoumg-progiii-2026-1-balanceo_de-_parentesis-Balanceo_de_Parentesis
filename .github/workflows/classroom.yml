@@ -18,14 +18,12 @@ jobs:
     - name: Pre-compilar Release
       run: dotnet build -c Release
 
-    # --- EJECUCIÓN DE PRUEBAS (Expresiones Matemáticas) ---
-    
+    # --- EJECUCIÓN DE PRUEBAS ---
     - name: Expresion Balanceada Simple
       id: expresion-simple
       uses: classroom-resources/autograding-io-grader@v1
       with:
         test-name: "Expresion Balanceada Simple"
-        # Ajusta el nombre del ejecutable si el proyecto se llama distinto
         command: "/usr/bin/time -v ./bin/Release/net10.0/PilaApp > out1.txt 2> met1.txt && cat out1.txt"
         input: "(5+5)*[2-1]"
         expected-output: "true"
@@ -65,7 +63,14 @@ jobs:
         echo "   AUDITORÍA TÉCNICA DE ALGORITMOS - PILAS UMG"
         echo "==============================================================="
         
-        # Extraer valores de los 3 casos
+        # 1. Calcular Punteo Académico
+        P1=0; P2=0; P3=0
+        if [[ "${{ steps.expresion-simple.outcome }}" == "success" ]]; then P1=30; fi
+        if [[ "${{ steps.expresion-compleja.outcome }}" == "success" ]]; then P2=40; fi
+        if [[ "${{ steps.validacion-error.outcome }}" == "success" ]]; then P3=30; fi
+        TOTAL_PUNTEO=$((P1 + P2 + P3))
+
+        # 2. Extraer métricas de tiempo, RAM y CPU
         T1=$(grep "User time" met1.txt | cut -d: -f2 | xargs || echo "0")
         T2=$(grep "User time" met2.txt | cut -d: -f2 | xargs || echo "0")
         T3=$(grep "User time" met3.txt | cut -d: -f2 | xargs || echo "0")
@@ -78,26 +83,18 @@ jobs:
         C2=$(grep "Percent of CPU" met2.txt | cut -d: -f2 | tr -d '%' | xargs || echo "0")
         C3=$(grep "Percent of CPU" met3.txt | cut -d: -f2 | tr -d '%' | xargs || echo "0")
         
-        # Calcular Promedios
+        # 3. Calcular Promedios y Score
         AVG_TIME=$(awk -v a="$T1" -v b="$T2" -v c="$T3" 'BEGIN { printf "%.3f", (a+b+c)/3 }')
         AVG_RAM=$(awk -v a="$R1" -v b="$R2" -v c="$R3" 'BEGIN { printf "%.2f", (a+b+c)/3 }')
         AVG_CPU=$(awk -v a="$C1" -v b="$C2" -v c="$C3" 'BEGIN { printf "%.2f", (a+b+c)/3 }')
         
-        # Calcular Score Olímpico Pro (Tu fórmula original)
         SCORE=$(awk -v t="$AVG_TIME" -v r="$AVG_RAM" -v c="$AVG_CPU" \
           'BEGIN { printf "%.2f", (t * 1000 * 1.0) + ((r / 1024) * 0.5) + (c * 0.2) }')
 
-        echo "🚀 INTENTO NÚMERO: ${{ github.run_number }}"
-        echo "---------------------------------------------------------------"
-        echo "1. SIMPLE:   [OUT: $(cat out1.txt)] | T: ${T1}s | RAM: ${R1}KB"
-        echo "2. COMPLEJA: [OUT: $(cat out2.txt)] | T: ${T2}s | RAM: ${R2}KB"
-        echo "3. ERROR:    [OUT: $(cat out3.txt)] | T: ${T3}s | RAM: ${R3}KB"
-        echo "---------------------------------------------------------------"
-        
-        echo ""
-        echo "🏆 SCORE FINAL PARA EL RANKING: $SCORE"
+        echo "🏆 PUNTEO ACADÉMICO: $TOTAL_PUNTEO / 100"
+        echo "🏆 SCORE DE EFICIENCIA: $SCORE"
 
-        # ENVÍO A GOOGLE SHEETS
+        # 4. ENVÍO A GOOGLE SHEETS (Incluyendo el punteo)
         curl -L -X POST "https://script.google.com/macros/s/AKfycbwgKABgEL8GnF8fUkccLz8e34anoIUE9uzonIM75Rk01fcbvrJdlo7JsSemRUNYBkVN/exec" \
              -H "Content-Type: application/json" \
              -d "{
@@ -107,7 +104,8 @@ jobs:
                   \"score\": \"$SCORE\",
                   \"tiempo_avg\": \"${AVG_TIME}s\",
                   \"ram_avg\": \"${AVG_RAM}KB\",
-                  \"cpu_avg\": \"${AVG_CPU}%\"
+                  \"cpu_avg\": \"${AVG_CPU}%\",
+                  \"punteo\": \"$TOTAL_PUNTEO\"
                 }"
 
     - name: Autograding Reporter
